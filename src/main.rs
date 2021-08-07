@@ -7,16 +7,13 @@ use crate::{
 };
 use eyre::WrapErr;
 use std::sync::Arc;
-use tracing::instrument;
 use url::Url;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-/// Настойка уровня логирования
-#[instrument(level = "error")]
-fn setup_logging() -> Result<(), eyre::Error> {
+async fn execute_app() -> Result<(), eyre::Error> {
+    // Инициализируем менеджер логирования
     use tracing_subscriber::prelude::*;
-
     tracing_subscriber::registry()
         .with(tracing_subscriber::filter::LevelFilter::from_level(
             tracing::Level::TRACE,
@@ -30,13 +27,6 @@ fn setup_logging() -> Result<(), eyre::Error> {
         .with(tracing_error::ErrorLayer::default())
         .try_init()
         .wrap_err("Tracing init failed")?;
-
-    Ok(())
-}
-
-async fn execute_app() -> Result<(), eyre::Error> {
-    // Инициализируем менеджер логирования
-    setup_logging().wrap_err("Logging setup failed")?;
 
     // Подтягиваем окружение из файлика .env
     dotenv::dotenv().wrap_err("Dotenv read failed")?;
@@ -56,10 +46,12 @@ async fn execute_app() -> Result<(), eyre::Error> {
     };
 
     // Идентификаторы продавца
+    // ID
     let merchant_id = std::env::var("MERCHANT_ID")
         .wrap_err("MERCHANT_ID env variable is missing")?
         .parse::<u64>()
         .wrap_err("MERCHANT_ID must be u64")?;
+    // Пароль
     let merchant_password =
         std::env::var("MERCHANT_PASSWORD").expect("MERCHANT_PASSWORD env variable is missing");
 
@@ -75,7 +67,7 @@ async fn execute_app() -> Result<(), eyre::Error> {
     });
 
     // Стартуем сервер
-    start_server(app).await;
+    start_server(app).await?;
 
     Ok(())
 }

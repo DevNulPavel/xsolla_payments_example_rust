@@ -1,9 +1,10 @@
-use std::{str::FromStr, sync::{
+/*use std::{str::FromStr, sync::{
         Arc
     }};
+use http::Error;
 use tracing::{
-    debug, 
-    error, 
+    debug,
+    error,
     instrument
 };
 use warp::{
@@ -14,44 +15,24 @@ use warp::{
         Reject
     }
 };
-use serde::{
-    Deserialize
-};
+use serde::Deserialize;
 use serde_json::{
     json
-};
-use tap::{
-    prelude::{
-        *
-    }
-};
-use reqwest_inspect_json::{
-    InspectJson
-};
-use crate::{
-    error::{
-        FondyError
-    },
-    application::{
-        Application,
-        AppConfig
-    }
-};
-use super::{
-    messages::{
-        FondyDataOrErrorResponse,
-        FondyInvalidResponse,
-        FondyRedirectUrlResponse,
-        FondyPaymentResponse
-    },
-    signature::{
-        calculate_signature
-    }
-};
+};*/
+use crate::application::Application;
+use std::sync::Arc;
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-impl Reject for FondyError {
+/*#[derive(Debug)]
+pub struct AppError(pub eyre::Error);
+impl Reject for AppError {
+}
+impl<E> From<E> for AppError
+where E: std::error::Error + Send + Sync + 'static {
+    fn from(err: E) -> AppError {
+        AppError(eyre::Error::new(err))
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -61,8 +42,9 @@ async fn index(app: Arc<Application>) -> Result<impl Reply, Rejection>{
     let html = app
         .templates
         .render("index", &json!({}))
-        .map_err(FondyError::from)
-        .tap_err(|err| { error!("Index template rendering failed: {}", err); })?;
+        .map_err(AppError::from)?;
+
+    // TODO: Логировать ошибку через tap error? Или есть какой-то централизованный способ через tracing?
 
     Ok(warp::reply::html(html))
 }
@@ -83,7 +65,7 @@ async fn buy(http_client: reqwest::Client, config: Arc<AppConfig>, buy_params: B
 
     // TODO: Сохраняем в базу, что данному order_id соответствует данный покупаемый итем
 
-    // TODO: ? 
+    // TODO: ?
     // Стоимость в центах, то есть умноженная на 10?
     // Либо в копейках умноженная на 100?
     let price: i32 = 10*100;
@@ -117,7 +99,7 @@ async fn buy(http_client: reqwest::Client, config: Arc<AppConfig>, buy_params: B
     // TODO: В структуру сериализации
     let mut parameters = json!({
         "order_id": order_id,
-        "merchant_id": config.merchant_id, 
+        "merchant_id": config.merchant_id,
         "order_desc": "My product description",
         "amount": price,
         "currency": currency,
@@ -185,6 +167,11 @@ async fn buy(http_client: reqwest::Client, config: Arc<AppConfig>, buy_params: B
 
 #[instrument(skip(bytes, config), fields(order_id, order_status))]
 async fn purchase_server_callback(config: Arc<AppConfig>, bytes: bytes::Bytes) -> Result<impl Reply, Rejection>{
+    // TODO:
+    // - Проверка ip адреса от которого был коллбек
+    // - 500й код ошибки при невозможности зачисления
+
+
     let text = std::str::from_utf8(bytes.as_ref())
         .map_err(FondyError::from)
         .tap_err(|err|{ error!("Data scream conver to bytes failed: {}", err); })?;
@@ -195,17 +182,17 @@ async fn purchase_server_callback(config: Arc<AppConfig>, bytes: bytes::Bytes) -
     // Текущая полученная подпись
     let received_signature = data
         .as_object()
-        .ok_or_else(||{ 
+        .ok_or_else(||{
             FondyError::Custom("Received json must be dictionary".to_string())
         })
         .tap_err(|err|{ error!("{}", err); })?
         .get("signature")
-        .ok_or_else(||{ 
+        .ok_or_else(||{
             FondyError::Custom("Signature field is missing".to_string())
         })
         .tap_err(|err|{ error!("{}", err); })?
         .as_str()
-        .ok_or_else(||{ 
+        .ok_or_else(||{
             FondyError::Custom("Signature must be string".to_string())
         })
         .tap_err(|err|{ error!("{}", err); })?;
@@ -235,9 +222,9 @@ async fn purchase_server_callback(config: Arc<AppConfig>, bytes: bytes::Bytes) -
     // - Проверяем, не была ли выдача уже через базу с транзакцией
     // - Оповещаем наш сервер
     // - Если наш сервер не ответил, тогда ставим в очередь периодическую отправку оповещения + сохраняем в базу до подтверждения
-    
+
     // Может быть сразу делать коллбек на наш сервер для выдачи??
-    
+
     // Лучше ждать прямо здесь пока наш сервер не ответит, затем возвращать ошибку
     // Тогда их сервер будет сам делать перезапрос на выдачу
 
@@ -257,7 +244,7 @@ async fn browser_callback(data: FondyPaymentResponse) -> Result<impl Reply, Reje
 
 #[instrument]
 async fn rejection_to_json(rejection: Rejection) -> Result<impl Reply, Rejection> {
-    if let Some(err) = rejection.find::<FondyError>(){
+    if let Some(err) = rejection.find::<eyre::Error>(){
         let reply = warp::reply::json(&json!({
             "code": warp::http::StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
             "message": err.to_string()
@@ -266,22 +253,23 @@ async fn rejection_to_json(rejection: Rejection) -> Result<impl Reply, Rejection
     }else{
         Err(rejection)
     }
-}
+}*/
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error>{
-    // Маршрут индекса
+pub async fn start_server(_app: Arc<Application>) -> Result<(), eyre::Error> {
+    /*// Маршрут индекса
     let index = warp::path::end()
-        .and(warp::get())    
+        .and(warp::get())
         .and(warp::any().map({
             let index_app = app.clone();
-            move || { 
+            move || {
                 index_app.clone()
             }
         }))
-        .and_then(index);
-        // .with(warp::trace::named("index"));
+        .and_then(index)
+        // .with(warp::trace::named("index"))
+        .recover(rejection_to_json);
 
     // Маршрут для покупки
     let buy = warp::path::path("buy")
@@ -290,13 +278,13 @@ pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error>{
                 .unify())
         .and(warp::any().map({
             let http_client = app.http_client.clone();
-            move || { 
+            move || {
                 http_client.clone()
             }
         }))
         .and(warp::any().map({
             let config = app.config.clone();
-            move || { 
+            move || {
                 config.clone()
             }
         }))
@@ -312,7 +300,7 @@ pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error>{
         .and(warp::post())
         .and(warp::any().map({
             let config = app.config.clone();
-            move || { 
+            move || {
                 config.clone()
             }
         }))
@@ -342,7 +330,7 @@ pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error>{
 
     warp::serve(routes)
         .bind(([0, 0, 0, 0], 8080))
-        .await;
-    
+        .await;*/
+
     Ok(())
 }
