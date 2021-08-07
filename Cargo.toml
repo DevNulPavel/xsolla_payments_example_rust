@@ -24,3 +24,4 @@ sha-1 = "0.9"
 iso4217 = "0.3"
 chrono = { version = "0.4", features = ["serde"] }
 isocountry = "0.3"
+bytes = "1.0"

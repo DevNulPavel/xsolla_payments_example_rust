@@ -2057,6 +2057,7 @@ dependencies = [
 name = "xsolla_payments_example_rust"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "color-eyre",
  "dotenv",

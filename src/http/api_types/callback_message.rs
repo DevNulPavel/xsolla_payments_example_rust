@@ -1,5 +1,8 @@
+use super::{
+    canceled_payment::CanceledPaymentData, success_payment::SuccessPaymentData,
+    user_exists_check::UserExistsCheckData,
+};
 use serde::Deserialize;
-use super::{success_payment::SuccessPaymentData, canceled_payment::CanceledPaymentData};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -9,14 +12,17 @@ use super::{success_payment::SuccessPaymentData, canceled_payment::CanceledPayme
 #[serde(tag = "notification_type")]
 pub enum CallbackMessage {
     #[serde(rename = "user_validation")]
-    UserValidation, // TODO: !!!
+    UserValidation(UserExistsCheckData),
 
     #[serde(rename = "payment")]
-    SuccessPayment(SuccessPaymentData),
+    SuccessPayment(Box<SuccessPaymentData>), // Box нужен из-за большого размера структуры внутри
 
     #[serde(rename = "refund")]
-    CanceledPayment(CanceledPaymentData),
+    CanceledPayment(Box<CanceledPaymentData>), // Box нужен из-за большого размера структуры внутри
+
+    #[serde(rename = "afs_reject")]
+    Reject, // TODO: !!!
 
     #[serde(other)]
-    Other
+    Other,
 }

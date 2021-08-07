@@ -2,3 +2,4 @@
 /db
 /logs
 .DS_Store
+test_env/*.env

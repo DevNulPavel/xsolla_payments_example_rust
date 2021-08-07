@@ -1,19 +1,21 @@
-/*use eyre::{ContextCompat, WrapErr};
 use sha1::Digest;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
-#[instrument(err, skip(json_data, secret_key))]
-pub fn calculate_signature(
-    secret_key: &str,
-    json_data: &serde_json::Value,
-) -> Result<String, eyre::Error> {
-    unimplemented!()
+#[instrument(skip(json_data, secret_key))]
+pub fn calculate_signature(json_data: &[u8], secret_key: &[u8]) -> String {
+    let mut sha = sha1::Sha1::new();
 
-    // // TODO: Может быть проще в цикле просто вызывать update для каждого значения?
-    // let mut sha = sha1::Sha1::new();
-    // sha.update(joined_string);
-    // let result = format!("{:x}", sha.finalize());
-    // debug!("Result SHA-1 hash: {}", result);
+    // TODO: Нужен ли вектор? Или достаточно делать update несколько раз?
+    // let mut buffer = Vec::with_capacity(json_data.len() + secret_key.len());
+    // buffer.extend_from_slice(json_data);
+    // buffer.extend_from_slice(secret_key);
+    // sha.update(buffer);
 
-    // Ok(result)
-}*/
+    // TODO: Нужен ли вектор? Или достаточно делать update несколько раз?
+    sha.update(json_data);
+    sha.update(secret_key);
+
+    let result = format!("{:x}", sha.finalize());
+
+    result
+}

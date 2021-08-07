@@ -40,29 +40,22 @@ async fn execute_app() -> Result<(), eyre::Error> {
     }
 
     // Адрес нашего сайта
-    let site_url = {
+    let current_site_url = {
         let site_url_string = std::env::var("SITE_URL").wrap_err("SITE_URL variable is missing")?;
         Url::parse(site_url_string.as_str()).wrap_err("SITE_URL is invalid url")?
     };
 
-    // Идентификаторы продавца
-    // ID
-    let merchant_id = std::env::var("MERCHANT_ID")
-        .wrap_err("MERCHANT_ID env variable is missing")?
-        .parse::<u64>()
-        .wrap_err("MERCHANT_ID must be u64")?;
-    // Пароль
-    let merchant_password =
-        std::env::var("MERCHANT_PASSWORD").expect("MERCHANT_PASSWORD env variable is missing");
+    // Ключ для API
+    let secret_key =
+        std::env::var("SECRET_KEY").expect("MERCHANT_PASSWORD env variable is missing");
 
     // Приложение со всеми нужными нам менеджерами
     let app = Arc::new(Application {
         templates: Arc::new(templates),
         http_client: reqwest::Client::new(),
         config: Arc::new(AppConfig {
-            site_url,
-            merchant_id,
-            merchant_password,
+            current_site_url,
+            secret_key
         }),
     });
 
