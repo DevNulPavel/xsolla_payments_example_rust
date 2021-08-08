@@ -19,9 +19,9 @@ async fn execute_app() -> Result<(), eyre::Error> {
             tracing::Level::TRACE,
         ))
         // Логи только от текущего приложения, без библиотек
-        .with(tracing_subscriber::filter::EnvFilter::new(env!(
-            "CARGO_PKG_NAME"
-        )))
+        // .with(tracing_subscriber::filter::EnvFilter::new(env!(
+        //     "CARGO_PKG_NAME"
+        // )))
         .with(tracing_subscriber::fmt::layer())
         // Для поддержки захватывания SpanTrace в eyre
         .with(tracing_error::ErrorLayer::default())
@@ -29,7 +29,7 @@ async fn execute_app() -> Result<(), eyre::Error> {
         .wrap_err("Tracing init failed")?;
 
     // Подтягиваем окружение из файлика .env
-    dotenv::dotenv().wrap_err("Dotenv read failed")?;
+    dotenv::from_filename("test_env/config.env").wrap_err("Dotenv read failed")?;
 
     // Шаблоны HTML
     let mut templates = handlebars::Handlebars::new();
@@ -46,8 +46,18 @@ async fn execute_app() -> Result<(), eyre::Error> {
     };
 
     // Ключ для API
+    let merchant_id = std::env::var("MERCHANT_ID")
+        .wrap_err("MERCHANT_ID env variable is missing")?
+        .parse::<i32>()
+        .wrap_err("MERCHANT_ID must be u64")?;
+    let project_id = std::env::var("PROJECT_ID")
+        .wrap_err("PROJECT_ID env variable is missing")?
+        .parse::<i32>()
+        .wrap_err("PROJECT_ID must be u64")?;
     let secret_key =
-        std::env::var("SECRET_KEY").expect("MERCHANT_PASSWORD env variable is missing");
+        std::env::var("SECRET_KEY").wrap_err("SECRET_KEY env variable is missing")?;
+    let api_key =
+        std::env::var("API_KEY").wrap_err("API_KEY env variable is missing")?;
 
     // Приложение со всеми нужными нам менеджерами
     let app = Arc::new(Application {
@@ -55,7 +65,10 @@ async fn execute_app() -> Result<(), eyre::Error> {
         http_client: reqwest::Client::new(),
         config: Arc::new(AppConfig {
             current_site_url,
-            secret_key
+            merchant_id,
+            project_id,
+            secret_key,
+            api_key
         }),
     });
 

@@ -14,7 +14,10 @@ use reqwest::{
 #[derive(Debug)]
 pub struct AppConfig{
     pub current_site_url: url::Url,
-    pub secret_key: String
+    pub merchant_id: i32,
+    pub project_id: i32,
+    pub secret_key: String,
+    pub api_key: String
 }
 
 #[derive(Debug)]
