@@ -1,20 +1,22 @@
 use crate::{
     application::{AppConfig, Application},
-    http::{
-        signature::calculate_signature,
-        api_types::callback_message::CallbackMessage
-    },
+    http::{api_types::callback_message::CallbackMessage, signature::calculate_signature},
 };
 use bytes::Bytes;
 use netaddr2::{Contains, Netv4Addr};
-use serde::__private::ser;
 use serde_json::json;
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
 };
 use tracing::{debug, error, instrument};
-use warp::{filters, reject::Reject, Filter, Rejection, Reply};
+use warp::{
+    filters,
+    http::{Response, StatusCode},
+    hyper::Body,
+    reject::Reject,
+    Filter, Rejection, Reply,
+};
 
 const ERROR_CODE_INVALID_USER: &str = "INVALID_USER";
 const ERROR_CODE_INVALID_PARAMETER: &str = "INVALID_PARAMETER";
@@ -47,21 +49,33 @@ where
 //////////////////////////////////////////////////////////////////////////////////////////
 
 #[instrument(skip(app))]
-async fn index(app: Arc<Application>) -> Result<impl Reply, Rejection> {
-    let html = app
-        .templates
-        .render("index", &json!({}))
-        .map_err(AppError::from)?;
-
+async fn index(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
     // TODO: Логировать ошибку через tap error? Или есть какой-то централизованный способ через tracing?
+    let render_res = app.templates.render("index", &json!({}));
 
-    Ok(warp::reply::html(html))
+    match render_res {
+        Ok(html) => Ok(warp::reply::html(html).into_response()),
+        Err(err) => {
+            error!(%err, "Template render error");
+            Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+#[instrument(skip(app))]
+async fn buy(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
+    Ok(warp::redirect::see_other(warp::http::Uri::from_static("test")).into_response())
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
 // Формируем error ответ для коллбека
-fn callback_error_reply(code: impl AsRef<str>, message: impl AsRef<str>) -> Box<dyn Reply> {
+fn callback_error_reply(
+    code: impl AsRef<str>,
+    message: impl AsRef<str>,
+) -> Result<Response<Body>, Rejection> {
     // Выведем информацию об ошибке в виде JSON
     let data = warp::reply::json(&json!({
         "error": {
@@ -69,10 +83,7 @@ fn callback_error_reply(code: impl AsRef<str>, message: impl AsRef<str>) -> Box<
             "message": message.as_ref()
         }
     }));
-    Box::new(warp::reply::with_status(
-        data,
-        warp::http::StatusCode::BAD_REQUEST,
-    ))
+    Ok(warp::reply::with_status(data, StatusCode::BAD_REQUEST).into_response())
 }
 
 /// Проверяем валидность ip адреса исходного отправителя
@@ -102,53 +113,52 @@ async fn server_callback(
     remote_addr: Option<SocketAddr>,
     authorization_header: String,
     body_bytes: Bytes,
-) -> Result<Box<dyn Reply + 'static>, Rejection> {
+) -> Result<Response<Body>, Rejection> {
     // Проверяем адрес от которого прилетел коллбек, но возможно, что надо будет убрать,
     // так как сервер может быть за reverse proxy
     if let Some(remote_addr) = remote_addr {
         let is_valid = check_remote_address_is_valid(remote_addr);
         if !is_valid {
-            return Ok(callback_error_reply(
-                ERROR_CODE_INVALID_PARAMETER,
-                "Remote address is invalid",
-            ));
+            const MESSAGE: &str = "Remote address invalid";
+            error!(?remote_addr, MESSAGE);
+            return callback_error_reply(ERROR_CODE_INVALID_PARAMETER, MESSAGE);
         }
     } else {
-        return Ok(callback_error_reply(
-            ERROR_CODE_INVALID_PARAMETER,
-            "Remote address is missing",
-        ));
+        const MESSAGE: &str = "Remote address is missing";
+        error!(MESSAGE);
+        return callback_error_reply(ERROR_CODE_INVALID_PARAMETER, MESSAGE);
     }
 
     // Проверка подписи из заголовка на валидность
     if let Some(received_signature_value) = authorization_header.strip_prefix("Signature ") {
         let calculated_signature_value =
             calculate_signature(body_bytes.as_ref(), app_config.secret_key.as_bytes());
+
+        debug!(
+            %received_signature_value,
+            %calculated_signature_value, "Signature comparison"
+        );
+
         if calculated_signature_value != received_signature_value {
-            return Ok(callback_error_reply(
-                ERROR_CODE_INVALID_SIGNATURE,
-                "Received signature invalid",
-            ));
+            const MESSAGE: &str = "Received signature invalid";
+            error!(?remote_addr, MESSAGE);
+            return callback_error_reply(ERROR_CODE_INVALID_SIGNATURE, MESSAGE);
         }
     } else {
-        return Ok(callback_error_reply(
-            ERROR_CODE_INVALID_SIGNATURE,
-            "Signature do not starts with valid prefix",
-        ));
+        const MESSAGE: &str = "Signature does not start with valid prefix";
+        error!(?remote_addr, MESSAGE);
+        return callback_error_reply(ERROR_CODE_INVALID_SIGNATURE, MESSAGE);
     }
 
     debug!(?body_bytes, "Received callback data");
 
     // Парсим переданные байты из body
-    let message = match serde_json::from_slice::<CallbackMessage>(body_bytes.as_ref()){
-        Ok(message)=> message,
+    let message = match serde_json::from_slice::<CallbackMessage>(body_bytes.as_ref()) {
+        Ok(message) => message,
         Err(err) => {
             let err_message = format!("Body parsing failed with error: {}", err);
             error!(%err_message);
-            return Ok(callback_error_reply(
-                ERROR_CODE_INVALID_PARAMETER,
-                err_message,
-            ));
+            return callback_error_reply(ERROR_CODE_INVALID_PARAMETER, err_message);
         }
     };
 
@@ -168,11 +178,10 @@ async fn server_callback(
         CallbackMessage::Reject => {
             todo!("Implement reject");
         }
-        CallbackMessage::Other => {
-        }
+        CallbackMessage::Other => {}
     }
 
-    Ok(Box::new(warp::http::StatusCode::NO_CONTENT))
+    Ok(warp::http::StatusCode::NO_CONTENT.into_response())
 
     // TODO:
     // - Проверка ip адреса от которого был коллбек

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use serde_with::{serde_as, NoneAsEmptyString, TryFromInto};
+use warp::http::StatusCode;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -33,7 +34,7 @@ impl<D> From<DataOrErrorResponse<D>> for Result<D, ErrorResponse> {
 #[derive(Debug, Deserialize)]
 pub struct ErrorResponse {
     #[serde_as(as = "TryFromInto<u16>")]
-    pub http_status_code: http::StatusCode,
+    pub http_status_code: StatusCode,
     #[serde_as(as = "NoneAsEmptyString")]
     pub message: Option<String>,
     pub extended_message: Option<String>,
