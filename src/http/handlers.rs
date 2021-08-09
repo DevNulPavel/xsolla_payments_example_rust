@@ -1,12 +1,15 @@
 use crate::{
     application::{AppConfig, Application},
     http::{api_types::callback_message::CallbackMessage, signature::calculate_signature},
+    unwrap_ok_or_else, unwrap_some_or_else,
 };
 use bytes::Bytes;
 use netaddr2::{Contains, Netv4Addr};
+use serde::Deserialize;
 use serde_json::json;
 use std::{
     net::{Ipv4Addr, SocketAddr},
+    str::FromStr,
     sync::Arc,
 };
 use tracing::{debug, error, instrument};
@@ -18,11 +21,11 @@ use warp::{
     Filter, Rejection, Reply,
 };
 
-const ERROR_CODE_INVALID_USER: &str = "INVALID_USER";
+// const ERROR_CODE_INVALID_USER: &str = "INVALID_USER";
 const ERROR_CODE_INVALID_PARAMETER: &str = "INVALID_PARAMETER";
 const ERROR_CODE_INVALID_SIGNATURE: &str = "INVALID_SIGNATURE";
-const ERROR_CODE_INCORRECT_AMOUNT: &str = "INCORRECT_AMOUNT";
-const ERROR_CODE_INCORRECT_INVOICE: &str = "INCORRECT_INVOICE";
+// const ERROR_CODE_INCORRECT_AMOUNT: &str = "INCORRECT_AMOUNT";
+// const ERROR_CODE_INCORRECT_INVOICE: &str = "INCORRECT_INVOICE";
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -65,8 +68,89 @@ async fn index(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
 //////////////////////////////////////////////////////////////////////////////////////////
 
 #[instrument(skip(app))]
+async fn request_token(app: Arc<Application>) -> Option<String> {
+    // Адрес получения токена
+    // TODO: Закешировать в конфиге и не форматировать каждый раз
+    let token_url = format!(
+        "https://api.xsolla.com/merchant/v2/merchants/{}/token",
+        app.config.merchant_id
+    );
+    debug!(%token_url, "Token request URL");
+
+    // Параметры запроса токена
+    // https://developers.xsolla.com/ru/pay-station-api/current/token/create-token/
+    let data = json!({});
+
+    // Выполним получение токена для открытия XSolla
+    let request_result = app
+        .http_client
+        .post(token_url)
+        .basic_auth(app.config.merchant_id, Some(&app.config.api_key))
+        .json(&data)
+        .send()
+        .await;
+    drop(data);
+    let response = unwrap_ok_or_else!(request_result, |err| {
+        error!(%err, "Token request error");
+        return None;
+    });
+
+    // Получаем сразу статус и текст ответа если есть
+    let status = response.status();
+
+    // Проверяем код ответа
+    if !status.is_success() {
+        // Получим текст описания ошибки если есть
+        let response_text = response.text().await.ok();
+        error!(%status, ?response_text, "Token status error");
+        return None;
+    }
+
+    // Из ответа получаем контент
+    let response_text = unwrap_ok_or_else!(response.text().await, |err| {
+        error!(%status, %err, "Token responce body receive failed");
+        return None;
+    });
+    debug!(?response_text, "Received token content");
+
+    // Пытаемся распарсить ответ
+    #[derive(Deserialize, Debug)]
+    struct TokenData {
+        token: String,
+    }
+    let parse_res = serde_json::from_str::<TokenData>(&response_text);
+    drop(response_text);
+    let token_res = unwrap_ok_or_else!(parse_res, |err| {
+        error!(%status, %err, "Token responce parsing failed");
+        return None;
+    });
+    debug!(?token_res, "Parsed token");
+
+    Some(token_res.token)
+}
+
+#[instrument(skip(app))]
 async fn buy(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
-    Ok(warp::redirect::see_other(warp::http::Uri::from_static("test")).into_response())
+    debug!("Buy handler begin");
+
+    // Запрашиваем токен
+    let token = unwrap_some_or_else!(request_token(app).await, || {
+        return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    });
+
+    // Создаем адрес для редиректа
+    let redirect_uri = {
+        let purchase_window_url = format!(
+            "https://sandbox-secure.xsolla.com/paystation3/?access_token={}",
+            token
+        );
+        unwrap_ok_or_else!(warp::http::Uri::from_str(&purchase_window_url), |err| {
+            error!(%err, "Payment window open url create failed");
+            return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        })
+    };
+
+    Ok(warp::redirect::see_other(redirect_uri).into_response())
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -166,13 +250,13 @@ async fn server_callback(
 
     // Обработка сообщения
     match message {
-        CallbackMessage::UserValidation(data) => {
+        CallbackMessage::UserValidation(_data) => {
             todo!("Implement validation");
         }
-        CallbackMessage::SuccessPayment(data) => {
+        CallbackMessage::SuccessPayment(_data) => {
             todo!("Implement success");
         }
-        CallbackMessage::CanceledPayment(data) => {
+        CallbackMessage::CanceledPayment(_data) => {
             todo!("Implement cancel");
         }
         CallbackMessage::Reject => {
@@ -215,10 +299,42 @@ async fn server_callback(
 //////////////////////////////////////////////////////////////////////////////////////////
 
 pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error> {
+    // Маршрут для индекса
+    let index = warp::path::end()
+        // Get запросы только
+        .and(warp::filters::method::get())
+        // Проброс приложения в обработчик
+        .and(warp::any().map({
+            let app = app.clone();
+            move || app.clone()
+        }))
+        // Обработчик сам
+        .and_then(index)
+        // Добавляем трассировку данного запроса
+        .with(warp::trace::request());
+
+    // Маршрут для покупки
+    let buy = warp::path::path("buy")
+        // Get запросы только
+        .and(
+            warp::filters::method::get()
+                .or(warp::filters::method::post())
+                .unify(),
+        )
+        // Проброс приложения в обработчик
+        .and(warp::any().map({
+            let app = app.clone();
+            move || app.clone()
+        }))
+        // Обработчик сам
+        .and_then(buy)
+        // Добавляем трассировку данного запроса
+        .with(warp::trace::request());
+
     // Маршрут для коллбека после покупки
-    let purchase_server_cb = warp::path::path("server_callback")
+    let server_cb = warp::path::path("server_callback")
         // Это POST запрос должен быть
-        .and(warp::post())
+        .and(warp::filters::method::post())
         // Json content type
         .and(filters::header::exact_ignore_case(
             "Content-Type",
@@ -242,7 +358,7 @@ pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error> {
         // Добавляем трассировку данного запроса
         .with(warp::trace::request());
 
-    let routes = purchase_server_cb.with(warp::trace::request());
+    let routes = index.or(buy).or(server_cb);
 
     warp::serve(routes).bind(([0, 0, 0, 0], 8080)).await;
 

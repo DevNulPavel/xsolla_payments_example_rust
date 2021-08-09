@@ -1,5 +1,6 @@
 mod application;
 mod http;
+mod macroses;
 
 use crate::{
     application::{AppConfig, Application},
@@ -19,9 +20,10 @@ async fn execute_app() -> Result<(), eyre::Error> {
             tracing::Level::TRACE,
         ))
         // Логи только от текущего приложения, без библиотек
-        // .with(tracing_subscriber::filter::EnvFilter::new(env!(
-        //     "CARGO_PKG_NAME"
-        // )))
+        // TODO: на релизе выводить все сообщения? Или настраивать через переменную окружения?
+        .with(tracing_subscriber::filter::EnvFilter::new(env!(
+            "CARGO_PKG_NAME"
+        )))
         .with(tracing_subscriber::fmt::layer())
         // Для поддержки захватывания SpanTrace в eyre
         .with(tracing_error::ErrorLayer::default())
