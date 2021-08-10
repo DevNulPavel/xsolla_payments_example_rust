@@ -1,11 +1,11 @@
 use serde::Deserialize;
-use super::helpers::currency_from_str;
+use super::helpers::deserealize_currency;
 
 /// Инфа платежа
 /// https://developers.xsolla.com/ru/api/v2/getting-started/#api_param_webhooks_refund_payment_details_payment
 #[derive(Debug, Deserialize)]
 pub struct Payment {
-    #[serde(deserialize_with = "currency_from_str")]
+    #[serde(deserialize_with = "deserealize_currency")]
     pub currency: &'static iso4217::CurrencyCode,
     pub amount: String
 }

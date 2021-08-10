@@ -1,7 +1,7 @@
 use super::{
-    checkout::CheckoutInfo, project_settings::ProjectSettings, purchase::PurchaseInfo,
-    subscription::SubscriptionInfo, total::TotalInfo, transaction::TransactionInfo, user::UserInfo,
-    payment_details::PaymentDetails
+    checkout::Checkout, payment_details::PaymentDetails, project_settings::ProjectSettings,
+    purchase::PurchaseInfo, subscription::Subscription, total::TotalInfo,
+    transaction::TransactionInfo, user::UserInfo, virtual_items::VirtualItems,
 };
 use serde::Deserialize;
 
@@ -13,15 +13,16 @@ use serde::Deserialize;
 pub struct SuccessPaymentData {
     pub settings: ProjectSettings,
     pub purchase: PurchaseInfo,
-    pub checkout: CheckoutInfo,
-    pub subscription: Option<SubscriptionInfo>,
+    pub checkout: Checkout,
+    pub subscription: Option<Subscription>,
+    pub virtual_items: Option<VirtualItems>,
+    // pub pin_codes
+    // pub gift
+    // pub promotions
+    // pub coupon
     pub total: TotalInfo,
     pub user: UserInfo,
     pub transaction: TransactionInfo,
     pub payment_details: PaymentDetails,
-    pub custom_parameters: Option<serde_json::Value>, 
-    // pub gift
-    // pub pin_codes
-    // pub promotions
-    // pub coupon
+    pub custom_parameters: Option<serde_json::Value>,
 }

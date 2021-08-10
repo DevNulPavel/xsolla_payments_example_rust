@@ -12,5 +12,8 @@ pub mod total;
 pub mod transaction;
 pub mod user;
 pub mod user_exists_check;
+pub mod token_request_body;
+pub mod virtual_currency;
+pub mod virtual_items;
 
 mod helpers;

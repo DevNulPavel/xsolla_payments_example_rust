@@ -1,27 +1,20 @@
-use crate::{
+
+/*use crate::{
     application::{AppConfig, Application},
-    http::{
-        api_types::{callback_message::CallbackMessage, token_request_body},
-        signature::calculate_signature,
-    },
+    http::{api_types::callback_message::CallbackMessage, signature::calculate_signature},
     unwrap_ok_or_else, unwrap_some_or_else,
 };
 use bytes::Bytes;
 use netaddr2::{Contains, Netv4Addr};
+use rocket::{routes, get, post};
 use serde::Deserialize;
 use serde_json::json;
 use std::{
-    net::{Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
     sync::Arc,
 };
 use tracing::{debug, error, instrument};
-use warp::{
-    filters,
-    http::{Response, StatusCode},
-    hyper::Body,
-    Filter, Rejection, Reply,
-};
 
 // const ERROR_CODE_INVALID_USER: &str = "INVALID_USER";
 const ERROR_CODE_INVALID_PARAMETER: &str = "INVALID_PARAMETER";
@@ -31,37 +24,13 @@ const ERROR_CODE_INVALID_SIGNATURE: &str = "INVALID_SIGNATURE";
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-// #[derive(Debug)]
-// pub struct AppError(pub eyre::Error);
-// impl Reject for AppError {}
-// impl From<eyre::Error> for AppError {
-//     fn from(err: eyre::Error) -> AppError {
-//         AppError(err)
-//     }
-// }
-// impl<E> From<E> for AppError
-// where
-//     E: std::error::Error + Send + Sync + 'static,
-// {
-//     fn from(err: E) -> AppError {
-//         AppError(eyre::Error::from(err))
-//     }
-// }
-
-//////////////////////////////////////////////////////////////////////////////////////////
-
+#[get("/")]
 #[instrument(skip(app))]
-async fn index(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
+async fn index(app: Arc<Application>) -> Result<String, eyre::Error> {
     // TODO: Логировать ошибку через tap error? Или есть какой-то централизованный способ через tracing?
-    let render_res = app.templates.render("index", &json!({}));
+    let render_res = app.templates.render("index", &json!({}))?;
 
-    match render_res {
-        Ok(html) => Ok(warp::reply::html(html).into_response()),
-        Err(err) => {
-            error!(%err, "Template render error");
-            Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response())
-        }
-    }
+    Ok(render_res)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -76,30 +45,9 @@ async fn request_token(app: Arc<Application>) -> Option<String> {
     );
     debug!(%token_url, "Token request URL");
 
-    let usd_code = iso4217::alpha3("USD").expect("Must be valid iso4217 code");
-
     // Параметры запроса токена
     // https://developers.xsolla.com/ru/pay-station-api/current/token/create-token/
-    let data = token_request_body::Body {
-        purchase: token_request_body::PurchaseInfo {
-            virtual_currency: Some(token_request_body::VirtualCurrency {
-                currency: usd_code,
-                quantity: 1,
-            }),
-            virtual_items: None,
-        },
-        settings: token_request_body::Settings {
-            currency: usd_code, // TODO: ???
-            mode: token_request_body::SandboxMode::Sandbox,
-            project_id: app.config.project_id,
-            return_url: String::from("https://google.com/test_callback"), // TODO: Адрес возврата
-        },
-        user: token_request_body::User {
-            id: token_request_body::UserId {
-                value: String::from("test_user_id"),
-            },
-        },
-    };
+    let data = json!({});
 
     // Выполним получение токена для открытия XSolla
     let request_result = app
@@ -299,88 +247,16 @@ async fn server_callback(
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-// #[instrument]
-// async fn rejection_to_json(rejection: Rejection) -> Result<impl Reply, Rejection> {
-//     // Если это какая-то наша ошибка, то отдаем 400й код ошибки + описание
-//     if let Some(err) = rejection.find::<eyre::Error>() {
-//         let reply = warp::reply::json(&json!({
-//             "code": warp::http::StatusCode::BAD_REQUEST.as_u16(),
-//             "message": err.to_string()
-//         }));
-//         Ok(warp::reply::with_status(
-//             reply,
-//             warp::http::StatusCode::BAD_REQUEST,
-//         ))
-//     } else {
-//         Err(rejection)
-//     }
-// }
-
-//////////////////////////////////////////////////////////////////////////////////////////
-
 pub async fn start_server(app: Arc<Application>) -> Result<(), eyre::Error> {
-    // Маршрут для индекса
-    let index = warp::path::end()
-        // Get запросы только
-        .and(warp::filters::method::get())
-        // Проброс приложения в обработчик
-        .and(warp::any().map({
-            let app = app.clone();
-            move || app.clone()
-        }))
-        // Обработчик сам
-        .and_then(index)
-        // Добавляем трассировку данного запроса
-        .with(warp::trace::request());
-
-    // Маршрут для покупки
-    let buy = warp::path::path("buy")
-        // Get запросы только
-        .and(
-            warp::filters::method::get()
-                .or(warp::filters::method::post())
-                .unify(),
-        )
-        // Проброс приложения в обработчик
-        .and(warp::any().map({
-            let app = app.clone();
-            move || app.clone()
-        }))
-        // Обработчик сам
-        .and_then(buy)
-        // Добавляем трассировку данного запроса
-        .with(warp::trace::request());
-
-    // Маршрут для коллбека после покупки
-    let server_cb = warp::path::path("server_callback")
-        // Это POST запрос должен быть
-        .and(warp::filters::method::post())
-        // Json content type
-        .and(filters::header::exact_ignore_case(
-            "Content-Type",
-            "application/json",
-        ))
-        // Конфиг наш
-        .and(warp::any().map({
-            let config = app.config.clone();
-            move || config.clone()
-        }))
-        // Удаленный адрес
-        .and(filters::addr::remote())
-        // Заголовки запроса
-        .and(filters::header::header::<String>("Authorization"))
-        // Тело в виде сырых байт
-        .and(filters::body::bytes())
-        // Обработчик
-        .and_then(server_callback)
-        // В случае нашей ошибки возвращаем код 400 + сообщение об ошибке
-        // .recover(rejection_to_json)
-        // Добавляем трассировку данного запроса
-        .with(warp::trace::request());
-
-    let routes = index.or(buy).or(server_cb);
-
-    warp::serve(routes).bind(([0, 0, 0, 0], 8080)).await;
+    let config = rocket::Config {
+        address: IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
+        port: 8080,
+        ..Default::default()
+    };
+    rocket::custom(config)
+        .mount("/", routes![index])
+        .launch()
+        .await?;
 
     Ok(())
-}
+}*/

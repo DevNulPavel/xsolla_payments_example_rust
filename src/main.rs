@@ -1,3 +1,5 @@
+// #[macro_use] extern crate rocket;
+
 mod application;
 mod http;
 mod macroses;
