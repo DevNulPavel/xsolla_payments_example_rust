@@ -31,6 +31,10 @@ const ERROR_CODE_INVALID_SIGNATURE: &str = "INVALID_SIGNATURE";
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
+const REDIRECT_SITE_PATH: &str = "SUCCESS_PURCHASE";
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
 // #[derive(Debug)]
 // pub struct AppError(pub eyre::Error);
 // impl Reject for AppError {}
@@ -78,6 +82,12 @@ async fn request_token(app: Arc<Application>) -> Option<String> {
 
     let usd_code = iso4217::alpha3("USD").expect("Must be valid iso4217 code");
 
+    // Адрес возврата на конкретный сайт
+    let callback_url = unwrap_ok_or_else!(app.config.current_site_url.join(REDIRECT_SITE_PATH), |err| {
+        error!(%err, "Invalid redirect url");
+        return None;
+    });
+
     // Параметры запроса токена
     // https://developers.xsolla.com/ru/pay-station-api/current/token/create-token/
     let data = token_request_body::Body {
@@ -89,10 +99,10 @@ async fn request_token(app: Arc<Application>) -> Option<String> {
             virtual_items: None,
         },
         settings: token_request_body::Settings {
-            currency: usd_code, // TODO: ???
+            currency: usd_code,
             mode: token_request_body::SandboxMode::Sandbox,
             project_id: app.config.project_id,
-            return_url: String::from("https://google.com/test_callback"), // TODO: Адрес возврата
+            return_url: callback_url.to_string(),
         },
         user: token_request_body::User {
             id: token_request_body::UserId {
@@ -157,6 +167,9 @@ async fn buy(app: Arc<Application>) -> Result<Response<Body>, Rejection> {
     let token = unwrap_some_or_else!(request_token(app).await, || {
         return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
     });
+
+    // Список тестовых карт:
+    // https://developers.xsolla.com/ru/doc/pay-station/references/test-cards/
 
     // Создаем адрес для редиректа
     let redirect_uri = {
@@ -271,9 +284,11 @@ async fn server_callback(
     // Обработка сообщения
     match message {
         CallbackMessage::UserValidation(_data) => {
+            // TODO: Если пользователь есть - возвращаем 204 код без тела
             todo!("Implement validation");
         }
         CallbackMessage::SuccessPayment(_data) => {
+            // TODO: Проверка повторного начисления транзакции
             todo!("Implement success");
         }
         CallbackMessage::CanceledPayment(_data) => {
